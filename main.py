@@ -6,12 +6,14 @@ import json
 import math
 from collections import namedtuple, Counter, defaultdict
 from datetime import datetime, timedelta
-from random import sample
 from random import seed as random_seed
+from random import sample, random
 
 import pandas as pd
+import numpy as np
 
 import seaborn as sns
+from adjustText import adjust_text
 from matplotlib import pyplot as plt
 from matplotlib import rc
 # For cyrillic labels
@@ -21,6 +23,10 @@ import networkx as nx
 
 from bs4 import BeautifulSoup
 
+from sklearn.manifold import TSNE
+from sklearn.cluster import KMeans
+
+
 from IPython.display import HTML, display
 
 
@@ -28,10 +34,16 @@ DATA_DIR = 'data'
 DUMP_DIR = os.path.join(DATA_DIR, 'dump')
 USERS = os.path.join(DUMP_DIR, 'users.json')
 CHANNELS = os.path.join(DUMP_DIR, 'channels.json')
+VIZ_DIR = 'viz'
+VIZ_DATA_DIR = os.path.join(VIZ_DIR, 'data')
+CHANNELS_VIZ_DATA = os.path.join(VIZ_DATA_DIR, 'channels.json')
+USERS_VIZ_DATA = os.path.join(VIZ_DATA_DIR, 'users.json')
+MESSAGES_BY_TIME_VIZ_DATA = os.path.join(VIZ_DATA_DIR, 'messages_by_time.json')
+MESSAGES_BY_CHANNELS_VIZ_DATA = os.path.join(VIZ_DATA_DIR, 'messages_by_channels.json')
+USERS_BY_TIME_VIZ_DATA = os.path.join(VIZ_DATA_DIR, 'users_by_time.json')
 
 GRAPH = 'graph.gexf'
 EMOJI_MENU = os.path.join(DATA_DIR, 'emoji_menu.html')
-
 
 TEXT = 'text'
 OTHER = 'other'
@@ -57,7 +69,7 @@ FEMALE_NAMES = {
     u'masha', u'maria', u'yana', u'liza', u'karina', u'darya',
     u'margarita', u'anastasiya', u'tatyana', u'ana', u'oksana',
     u'mary', u'vera', u'khrystyna', u'nataliya', u'mariya', u'aida',
-    u'elena', u'karen', u'лера', u'olha', u'sara', u'nataliia',
+    u'elena', u'лера', u'olha', u'sara', u'nataliia',
     u'kseniya', u'ирина', u'катерина', u'ira', u'alisa', u'мария',
     u'марина', u'ai', u'dasza', u'валерия', u'olia', u'diana',
     u'олеся', u'юлия', u'vasyl', u'olena', u'дарья', u'klara',
@@ -127,7 +139,8 @@ class User(User_):
 
 Channel_ = namedtuple(
     'Channel',
-    ['id', 'name', 'active', 'creator', 'created', 'members']
+    ['id', 'name', 'active', 'creator', 'created', 'members',
+     'purpose', 'topic']
 )
 
 class Channel(Channel_):
@@ -191,6 +204,10 @@ Edge = namedtuple(
 EmojiMenuRecord = namedtuple(
     'EmojiMenuRecord',
     ['name', 'style']
+)
+UserCard = namedtuple(
+    'UserCard',
+    ['name', 'image', 'joined', 'welcome_message', 'channel_messages', 'top_messages']
 )
 
 
@@ -324,8 +341,12 @@ def load_channels(id_users):
         creator = id_users[record['creator']]
         created = parse_timestamp(record['created'])
         members = [id_users[_] for _ in record['members']]
-        yield Channel(id, name, active, creator, created, members)
-
+        purpose = record['purpose']['value']
+        topic = record['topic']['value']
+        yield Channel(
+            id, name, active, creator, created, members,
+            purpose, topic
+        )
 
         
 def list_channel_chunks(channel):
@@ -778,12 +799,13 @@ def show_users_join(messages):
     user_messages = get_user_messages(messages)
     for user in user_messages:
         records = user_messages[user]
-        joined = round_month(records[0].posted)
+        joined = round_week(records[0].posted.date())
         counts[joined] += 1
     table = pd.Series(counts)
+    table.index = pd.to_datetime(table.index)
     fig, ax = plt.subplots()
     table.plot(ax=ax)
-    ax.set_ylabel(u'Число зарегистрировавшихся в месяц')
+    ax.set_ylabel(u'Число зарегистрировавшихся в неделю')
 
 
 def round_month(date):
@@ -975,3 +997,366 @@ def is_custom_reaction(name):
     if name in EMOJIES:
         style = EMOJIES[name]
         return is_custom_emoji_style(style)
+
+
+def tsne_users(messages):
+    counts = Counter()
+    for record in messages:
+        name = record.user.name
+        counts[name, record.channel.name] += 1
+    table = pd.Series(counts)
+    table = table.unstack(fill_value=0)
+
+    order = table.sum(axis=1).sort_values(ascending=False)
+    table = table.reindex(index=order.index)
+
+    table = table.div(table.sum(axis=1), axis=0)
+
+    model = TSNE(n_components=2, random_state=0)
+    points = model.fit_transform(table.as_matrix()) 
+    
+    return order, points
+
+
+def cluster_tsne_users(points):
+    kmeans = KMeans(n_clusters=30, random_state=0).fit(points)
+    return kmeans.labels_, kmeans.cluster_centers_
+
+
+def show_tsne_users(order, points, labels, centers):
+    clusters = len(set(labels))
+    palette = sns.color_palette('deep', clusters)
+    colors = [palette[_ % clusters] for _ in labels]
+    
+    sizes = 2 * np.log(order.values) + 1
+    
+    fig, ax = plt.subplots()
+    ax.scatter(points[:, 0], points[:, 1], s=sizes, lw=0, c=colors)
+    for index, point in enumerate(centers):
+        ax.annotate(index, point)
+    ax.axis('off')
+    fig.set_size_inches((10, 8))
+
+
+def get_user_cards(users, messages):
+    user_messages = get_user_messages(messages)
+    for user in users:
+        name = user.name
+        image = user.image
+        if name in user_messages:
+            records = user_messages[name]
+            joined = records[0].posted
+            welcome_message = None
+            channel_messages = Counter()
+            for record in records:
+                if record.type == TEXT:
+                    channel = record.channel.name
+                    channel_messages[channel] += 1
+                    if channel == 'welcome' and welcome_message is None:
+                        welcome_message = record
+            top_messages = [
+                _ for _ in records
+                if _.type == TEXT and _.reactions and _ != welcome_message
+            ]
+            top_messages = sorted(
+                top_messages,
+                key=lambda _: len(_.reactions),
+                reverse=True
+            )
+            yield UserCard(
+                name, image, joined,
+                welcome_message, channel_messages, top_messages
+            )
+
+
+def show_card_message(message):
+    print message.channel.name, message.posted
+    print message.text
+    show_emojis([_.name for _ in message.reactions])
+    print
+
+
+def show_message(message):
+    print message.channel.name, message.user.name, message.posted
+    print message.text
+    print
+    
+    
+def show_user_card(record, top_channels=10, top_messages=3):
+    print record.name, record.joined.date()
+    message = record.welcome_message
+    if message:
+        show_card_message(message)
+    for channel, count in record.channel_messages.most_common(top_channels):
+        print '\t', count, '\t', channel
+    print
+    messages = record.top_messages
+    if messages:
+        for message in messages[:top_messages]:
+            show_card_message(message)
+
+
+def show_channels_created(channels, messages, top=10):
+    channel_messages = Counter()
+    for record in messages:
+        channel_messages[record.channel.name] += 1
+        
+    user_channels = Counter(_.creator.name for _ in channels)
+    users = [user for user, _ in user_channels.most_common()]
+    palette = sns.color_palette('deep', len(users))
+
+    fig, ax = plt.subplots()
+    X = []
+    Y = []
+    sizes = []
+    texts = []
+    colors = []
+    random_seed(42)
+    order = []
+    for record in sorted(channels, key=lambda _: _.created):
+        x = record.created
+        X.append(x)
+        user = record.creator.name
+        y = users.index(user)
+        if y >= top:
+            y = top
+        y += (random() - 0.5)  / 2
+        Y.append(y)
+        size = channel_messages[record.name]
+        sizes.append(size)
+        text = record.name
+        order.append(text)
+        text = str(len(order))
+        text = ax.text(x, y, text, size=7)
+        texts.append(text)
+        
+        color = palette[users.index(user)]
+        colors.append(color)
+    sizes = np.sqrt(sizes) + 1
+
+    ax.scatter(X, Y, s=sizes, c=colors, lw=0, alpha=0.75)
+    labels = users[:top] + [OTHER]
+    ax.set_yticks(range(top + 1))
+    ax.set_yticklabels(labels)
+    adjust_text(
+        texts,
+        arrowprops={'arrowstyle': '-', 'color': 'silver', 'lw': 0.5},
+    )
+    fig.autofmt_xdate()
+#     ax.set_axis_bgcolor('white')
+    ax.set_xlabel('created')
+    for chunk in wrap_sequence(list(enumerate(order, 1)), 5):
+        for index, channel in chunk:
+            print index, channel,
+        print
+
+
+def parse_date(value):
+    return datetime.strptime(value, '%Y-%m-%d')
+
+
+def serialize_date(date):
+    return date.strftime('%Y-%m-%d')
+
+
+def dump_json(data, path):
+    with open(path, 'w') as file:
+        json.dump(data, file)
+
+
+def dump_channels_viz_data(channels, messages, top=7):
+    channel_messages = Counter()
+    for record in messages:
+        channel_messages[record.channel.name] += 1
+
+    data = []
+    counts = Counter()
+    for record in channels:
+        name = record.name
+        purpose = record.purpose
+        created = record.created
+        creator = record.creator.name
+        counts[creator] += 1
+        members = len(record.members)
+        messages = channel_messages[name]
+        if members:
+            data.append({
+                'name': name,
+                'purpose': purpose,
+                'created': serialize_date(created),
+                'creator': creator,
+                'members': members,
+                'messages': messages,
+            })
+    order = [user for user, count in counts.most_common(top)]
+    dump_json({
+        'records': data,
+        'order': order
+    }, CHANNELS_VIZ_DATA)
+
+
+def dump_users_viz_data(names, points, clusters, user_cards, top_channels=10):
+    mapping = {_.name: _ for _ in user_cards}        
+    data = []
+    for name, point, cluster in zip(names, points, clusters):
+        card = mapping[name]
+        x, y = point
+        cluster = int(cluster)  # numpy.int is not json serializable
+        joined = card.joined
+        welcome_message = card.welcome_message
+        if welcome_message:
+            welcome_message = welcome_message.text
+        channel_messages = card.channel_messages
+        channel_messages = [
+            (channel, messages)
+            for channel, messages
+            in channel_messages.most_common(top_channels)
+        ]
+        messages = sum(
+            messages for channel, messages
+            in channel_messages
+        )
+        data.append({
+            'name': name,
+            'cluster': cluster,
+            'x': x,
+            'y': y,
+            'joined': serialize_date(joined),
+            'welcome_message': welcome_message,
+            'channel_messages': channel_messages,
+            'messages': messages
+        })
+    dump_json(data, USERS_VIZ_DATA)
+
+
+def dump_messages_by_time(messages):
+    filler = u'2016-01-10. В эту неделю случилось то-то и то-то.'
+    tooltips = {
+        OTHER: {
+            '2015-12-13': filler,
+            '2016-04-24': filler,
+            '2016-09-04': filler,
+            '2016-11-20': filler,
+        },
+        '_random_flood': {
+            '2015-10-18': filler,
+            '2016-03-06': filler,
+        },
+        'career': {
+            '2016-07-31': filler,
+            '2016-11-20': filler,
+        },
+        'bots': {
+            '2016-10-16': filler,
+        }
+    }
+    data = []
+    selection = ['bots', '_random_flood', 'career']
+    for record in messages:
+        channel = record.channel.name
+        if channel not in selection:
+            channel = OTHER
+        data.append((record.posted, channel))
+    table = pd.DataFrame(
+        data,
+        columns=['posted', 'channel']
+    )
+    table = table.groupby(['posted', 'channel']).size()
+    table = table.unstack()
+    table = table.resample('W').sum()
+    # remove last week since it may be not full
+    table = table[table.index < table.index.max()]
+
+    data = {}
+    for channel in [OTHER] + selection:
+        view = table[channel]
+        view = view[~view.isnull()]
+        series = {}
+        for date, messages in view.iteritems():
+            date = serialize_date(date)
+            series[date] = messages
+        data[channel] = series
+    for channel in tooltips:
+        for date in tooltips[channel]:
+            assert date in data[channel], (channel, date)
+    # tooltips = defaultdict(dict)
+    # for channel in data:
+    #     for date in data[channel]:
+    #         tooltips[channel][date] = date
+    dump_json({
+        'records': data,
+        'tooltips': tooltips
+    }, MESSAGES_BY_TIME_VIZ_DATA)
+
+
+def dump_messages_by_channels(messages, top=40):
+    data = []
+    for record in messages:
+        channel = record.channel.name
+        data.append((record.posted, channel))
+    table = pd.DataFrame(
+        data,
+        columns=['posted', 'channel']
+    )
+    table = table.groupby(['posted', 'channel']).size()
+    table = table.unstack()
+    table = table.resample('W').sum()
+    table = table[table.index < table.index.max()]
+
+    channels = table.sum(axis=0)
+    channels = channels.sort_values(ascending=False)
+    channels = list(channels.head(top).index)
+
+    data = {}
+    for channel in channels:
+        series = table[channel]
+        series = series[~series.isnull()]
+        series = {
+            serialize_date(date): messages
+            for date, messages in series.iteritems()
+        }
+        data[channel] = series
+
+    filler = u'2016-01-10. В эту неделю случилось то-то и то-то.'
+    tooltips = defaultdict(dict)
+    for channel in data:
+        for date in sample(data[channel], 2):
+            tooltips[channel][date] = filler
+
+    dump_json({
+        'tooltips': tooltips,
+        'records': data,
+        'order': channels
+    }, MESSAGES_BY_CHANNELS_VIZ_DATA)
+
+
+def dump_users_by_time(messages):
+    filler = u'2016-01-10. В эту неделю случилось то-то и то-то.'
+    tooltips = {
+        '2015-06-29': filler,
+        '2016-01-18': filler,
+        '2016-04-11': filler,
+        '2016-05-23': filler,
+        '2016-09-05': filler,
+    }
+
+    dates = []
+    counts = Counter()
+    user_messages = get_user_messages(messages)
+    for user in user_messages:
+        records = user_messages[user]
+        joined = round_week(records[0].posted.date())
+        dates.append(joined)
+        counts[joined] += 1
+    last = max(dates)
+    data = {
+        serialize_date(date): users
+        for date, users in counts.iteritems()
+        if date < last
+    }
+    for date in tooltips:
+        assert date in data, date
+    dump_json({
+        'records': data,
+        'tooltips': tooltips
+    }, USERS_BY_TIME_VIZ_DATA)

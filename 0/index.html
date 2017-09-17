@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf8">
+    <title>Слек сообщества Open Data Science в цифрах</title>
+
+    <link rel="stylesheet" href="bootstrap.min.css">
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <div class="container">
+      <div class="row">
+	<div class="col-md-offset-1 col-md-10">
+	  <h1>Слек сообщества Open Data Science в цифрах</h1>
+	</div>
+	<div class="col-md-offset-1 col-md-6">
+	  <p>
+	    За два года в слеке ODS написано 194&nbsp;000 сообщений, создано 100 каналов, зарегистрировано 2075 пользователей. Попробуем разобраться, как это произошло, чем живёт сообщество, и что его ждёт в будущем.
+	  <p>
+	</div>
+	<div class="col-md-4">
+	  <p>
+	    Данные выгружены Алексеем Натекиным, обработаны и оформлены в <a href="http://lab.alexkuk.ru">Лаборатории анализа данных Кукушкина Александра</a>.
+	  <p>
+	</div>
+      </div>
+
+      <div class="row">
+	<div class="col-md-offset-1 col-md-6">
+	  <p>
+	    Каналы, которые были созданы первыми, до сих пор остаются самыми популярными: #_random_flood, #theory_and_practice, #deep_lerning. Исключение только одно &mdash; #career. С апреля 2015 до апреля 2016 новые каналы создавались редко и только ограниченным кругом людей: @natekin, @i, @malev, @ermakovpetr, @lolpig, @semenoffalex. С 2016 года начинает появляться много маленьких каналов, их создают разные люди, например, #mltrainings_beginners от @dremovd, #bayesian от @gangiman. TODO Истории про то как появились некоторые каналы.
+	  </p>
+	</div>
+      </div>
+      <div id="channels" class="viz row">
+	<div class="canvas col-md-offset-1 col-md-6">
+	</div>
+	<div class="profile hidden col-md-4">
+	  <h4 class="name"></h4>
+	  <span class="created"></span> <span class="creator"></span>
+	  <div class="purpose"></div>
+
+	  <!--     <dt>Число пользователей:</dt> -->
+	  <!--     <dd class="members"></dd> -->
+	  <!--     <dt>Число сообщений:</dt> -->
+	  <!--     <dd class="messages"></dd> -->
+	  <!-- </dl> -->
+
+	</div>
+      </div>
+
+      <div class="row">
+	<div class="col-md-offset-1 col-md-6">
+	  <p>
+	    В конце 2016 года как будто случился взрывной рост количества сообщений. Почти весь он пришёлся на #bots, #_random_flood, #career. Активность в профильных каналах тоже растёт, но линейно. Получается, что доля профильных разговоров уменьшается. TODO Плохо это или хорошо? Что стоит за пиками на графике
+	  </p>
+	</div>
+      </div>
+      <div id="messages-by-time" class="viz row">
+	<div class="canvas col-md-offset-1 col-md-5">
+	</div>
+      </div>
+
+      <div class="row">
+	<div class="col-md-offset-1 col-md-6">
+	  <p>
+	    Интересно посмотреть, как менялась активность в отдельных каналах. Взрывной рост в #bots, #_random_flood и #career. Линейно растут #theory_and_practice, #deep_learning, #lang_python, #lang_r. TODO Что стоит за пиками на графиках
+	  </p>
+	</div>
+      </div>
+      <div id="messages-by-channels" class="viz row">
+	<div class="canvas col-md-offset-1 col-md-10">
+	</div>
+      </div>
+
+      <div class="row">
+	<div class="col-md-offset-1 col-md-6">
+	  <p>
+	    C начала 2016 года начался рост новых пользователей. ТОДО С чем может быть связано. Что стоит за пиками на графике.
+	  </p>
+	</div>
+      </div>
+      <div id="users-by-time" class="viz row">
+	<div class="canvas col-md-offset-1 col-md-10">
+	</div>
+      </div>
+
+      <div class="row">
+	<div class="col-md-offset-1 col-md-6">
+	  <p>
+	    Пользователи группируются по активности в каналах. Кто-то написал в #welcome или #jobs и замолчал, у кого-то большинство сообщений в #bots. Люди группируются вокруг соревнований: #deephack, #sberbank_contest. Есть отдельный кластер для #mltrainings_beginners. ТОДО И т.д и т.п Больше и лучше описать группы. Подсвечивать группы, о которых идёт речь на картинке.
+	  </p>
+	</div>
+      </div>
+      <div id="users" class="viz row">
+	<div class="canvas col-md-offset-1 col-md-6">
+	</div>
+	<div class="profile hidden col-md-4">
+	    <h4 class="name"></h4>
+	    <dl>
+	      <div class="section joined">
+		<dt>Дата регистрации</dt>
+		<dd></dd>
+	      </div>
+	      <div class="section welcome-message">
+		<dt>Первое сообщение в #welcome</dt>
+		<dd></dd>
+	      </div>
+	      <div class="channel-messages">
+		<dt>Активность в каналах</dt>
+		<dd></dd>
+	      </div>
+	  </dl>
+	</div>
+      </div>
+
+      <div class="row">
+	<div class="col-md-offset-1 col-md-6">
+	  <p>
+	    Выводы, выводы, выводы
+	  </p>
+	</div>
+      </div>
+    </div>
+    
+
+    <script src="d3.v3.min.js" charset="utf-8"></script>
+    <script src="index.js" type="text/javascript"></script>
+  </body>
+</html>

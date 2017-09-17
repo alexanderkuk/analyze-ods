@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf8">
+    <title>Каналы и пользователи</title>
+
+    <meta name="description" content="Каналы и пользователи">
+    <meta name="keywords" content="ods, пользователи, канали">
+    <meta property="og:title" content="Каналы и пользователи"/>
+    <meta property="og:description" content="Визуализация интересов пользователей и процесса появления каналов"/>
+    <meta property="og:image" content="https://alexanderkuk.github.io/analyze-ods/thumb.png"/>
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Каналы и пользователи">
+    <meta name="twitter:description" content="Визуализация интересов пользователей и процесса появления каналов">
+    <meta name="twitter:image:src" content="https://alexanderkuk.github.io/analyze-ods/thumb.png">
+
+    <link rel="stylesheet" href="bootstrap.min.css">
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <div class="container">
+      <div class="row">
+	<div class="col-md-offset-1 col-md-7">
+	  <h1>Каналы</h1>
+	  <p>Диск на графике соответствует каналу. Чем больше диск, тем больше сообщений в канале. У каналов одинакового цвета один создатель. При выделении диска появляется график с динамикой числа сообщений. Видно, например, что основные каналы были созданы в самом начала, их авторы &mdash; это 3-5 человек. До начала 2016 года новые каналы почти не создавались. В 2016, 2017 создаётся много каналов, у них разные авторы.</p>
+	</div>
+      </div>
+
+      <div id="channels" class="viz row">
+	<div class="canvas col-md-8">
+	</div>
+	<div class="profile hidden col-md-4">
+	  <h4 class="name"></h4>
+	  <div class="section">
+	    <span class="created"></span> <span class="creator"></span>
+	  </div>
+	  <div class="section canvas messages">
+	  </div>
+	  <div class="section purpose"></div>
+	</div>
+      </div>
+
+      <div class="row">
+	<div class="col-md-offset-1 col-md-7">
+	  <h1>Пользователи</h1>
+	</div>
+      </div>
+	  
+      <div class="row">
+	<div class="col-md-offset-1 col-md-7">
+	  <p>Точка на графике соответствует пользователю, размер &mdash; числу сообщений. Цвет и положение определяется каналами, в которые пишет человек. При выделении точки выводится динамика числа сообщений по каналам. Видно, что часть пользователей группируется внутри отдельных каналов. В центре графика люди, с большим количеством сообщений в разные каналы. </p>
+	</div>
+	<div class="col-md-3">
+	  <p>
+	    Визуализации сделаны в <a href="http://lab.alexkuk.ru">Лаборатории анализа данных Кукушкина Александра</a>
+	  </p>
+	</div>
+      </div>
+
+      <div id="users" class="viz row">
+	<div class="canvas col-md-offset-1 col-md-7">
+	</div>
+	<div class="col-md-4">
+	  <input id="search" type="text" placeholder="Поиск по имени или каналу">
+	  <div class="profile hidden">
+	    <h4 class="name"></h4>
+	    <dl>
+	      <div class="section canvas messages">
+	      </div>
+	      <div class="section welcome-message">
+	      </div>
+	    </dl>
+	  </div>
+	</div>	
+      </div>
+    </div>
+
+    <script src="d3.v3.min.js" charset="utf-8"></script>
+    <script src="index.js" type="text/javascript"></script>
+  </body>
+</html>

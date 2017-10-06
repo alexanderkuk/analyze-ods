@@ -4,7 +4,7 @@ import re
 import os
 import json
 import math
-from collections import namedtuple, Counter, defaultdict
+from collections import namedtuple, Counter, defaultdict, OrderedDict
 from datetime import datetime, timedelta
 from random import seed as random_seed
 from random import sample, random
@@ -23,7 +23,8 @@ import networkx as nx
 
 from bs4 import BeautifulSoup
 
-from sklearn.manifold import TSNE
+# from sklearn.manifold import TSNE
+from MulticoreTSNE import MulticoreTSNE as TSNE
 from sklearn.cluster import KMeans
 
 
@@ -47,6 +48,7 @@ EMOJI_MENU = os.path.join(DATA_DIR, 'emoji_menu.html')
 
 TEXT = 'text'
 OTHER = 'other'
+OTHER_COLOR = 'silver'
 
 DAY_NAMES = [
     u'пн',
@@ -207,7 +209,9 @@ EmojiMenuRecord = namedtuple(
 )
 UserCard = namedtuple(
     'UserCard',
-    ['name', 'image', 'joined', 'welcome_message', 'channel_messages', 'top_messages']
+    ['name', 'image', 'joined',
+     'messages', 'welcome_message',
+     'channel_messages', 'channel_date_messages', 'top_messages']
 )
 
 
@@ -804,6 +808,7 @@ def show_users_join(messages):
     table = pd.Series(counts)
     table.index = pd.to_datetime(table.index)
     fig, ax = plt.subplots()
+    # table.cumsum().plot(ax=ax)
     table.plot(ax=ax)
     ax.set_ylabel(u'Число зарегистрировавшихся в неделю')
 
@@ -999,23 +1004,34 @@ def is_custom_reaction(name):
         return is_custom_emoji_style(style)
 
 
-def tsne_users(messages):
+def get_tsne_table(messages):
     counts = Counter()
     for record in messages:
         name = record.user.name
-        counts[name, record.channel.name] += 1
+        channel = record.channel.name
+        counts[name, channel] += 1
+
     table = pd.Series(counts)
     table = table.unstack(fill_value=0)
 
     order = table.sum(axis=1).sort_values(ascending=False)
     table = table.reindex(index=order.index)
 
+    # table = table.div(table.sum(axis=0), axis=1)
     table = table.div(table.sum(axis=1), axis=0)
+    return order, table
 
-    model = TSNE(n_components=2, random_state=0)
-    points = model.fit_transform(table.as_matrix()) 
-    
-    return order, points
+
+def tsne_users(table):
+    model = TSNE(
+        n_jobs=4,
+        n_components=2,
+        random_state=42,
+        n_iter=500,
+        perplexity=30
+    )
+    points = model.fit_transform(table.as_matrix())
+    return points
 
 
 def cluster_tsne_users(points):
@@ -1023,19 +1039,59 @@ def cluster_tsne_users(points):
     return kmeans.labels_, kmeans.cluster_centers_
 
 
-def show_tsne_users(order, points, labels, centers):
+def vector_add(a, b):
+    assert len(a) == len(b)
+    return [x + y for x, y in zip(a, b)]
+
+
+def scale_vector(vector, scale):
+    return [_ * scale for _ in vector]
+
+
+def weight_colors(palette, weights):
+    accumulator = [0, 0, 0]
+    assert len(palette) == len(weights)
+    for color, weight in zip(palette, weights):
+        accumulator = vector_add(
+            accumulator,
+            scale_vector(
+                color,
+                weight
+            )
+        )
+    return accumulator
+
+
+def get_tsne_colors(table):
+    palette = sns.color_palette('husl', 20)
+    matrix = table.as_matrix()
+    users, channels = table.shape
+    channel_colors = []
+    for index in xrange(channels):
+        color = palette[index % len(palette)]
+        channel_colors.append(color)
+    colors = []
+    for index in xrange(users):
+        weights = list(matrix[index])
+        color = weight_colors(channel_colors, weights)
+        colors.append(color)
+    channels = table.columns
+    channel_colors = dict(zip(channels, channel_colors))
+    return channel_colors, colors
+
+
+def get_tsne_sizes(order):
+    return 2 * np.log(order.values) + 1
+
+
+def show_tsne_users(order, points, colors, sizes, labels, centers):
     clusters = len(set(labels))
-    palette = sns.color_palette('deep', clusters)
-    colors = [palette[_ % clusters] for _ in labels]
-    
-    sizes = 2 * np.log(order.values) + 1
-    
     fig, ax = plt.subplots()
     ax.scatter(points[:, 0], points[:, 1], s=sizes, lw=0, c=colors)
     for index, point in enumerate(centers):
         ax.annotate(index, point)
     ax.axis('off')
-    fig.set_size_inches((10, 8))
+    fig.set_size_inches((10, 10))
 
 
 def get_user_cards(users, messages):
@@ -1048,10 +1104,12 @@ def get_user_cards(users, messages):
             joined = records[0].posted
             welcome_message = None
             channel_messages = Counter()
+            channel_date_messages = defaultdict(Counter)
             for record in records:
                 if record.type == TEXT:
                     channel = record.channel.name
                     channel_messages[channel] += 1
+                    channel_date_messages[channel][record.posted] += 1
                     if channel == 'welcome' and welcome_message is None:
                         welcome_message = record
             top_messages = [
@@ -1063,9 +1121,11 @@ def get_user_cards(users, messages):
                 key=lambda _: len(_.reactions),
                 reverse=True
             )
+            messages = sum(_.type == TEXT for _ in records)
             yield UserCard(
                 name, image, joined,
-                welcome_message, channel_messages, top_messages
+                messages, welcome_message,
+                channel_messages, channel_date_messages, top_messages
             )
 
 
@@ -1089,11 +1149,29 @@ def show_user_card(record, top_channels=10, top_messages=3):
         show_card_message(message)
     for channel, count in record.channel_messages.most_common(top_channels):
         print '\t', count, '\t', channel
-    print
-    messages = record.top_messages
-    if messages:
-        for message in messages[:top_messages]:
-            show_card_message(message)
+    # print
+    # messages = record.top_messages
+    # if messages:
+    #     for message in messages[:top_messages]:
+    #         show_card_message(message)
+
+
+def show_user_messages_per_date(text_messages, selection):
+    counts = Counter()
+    for record in text_messages:
+        name = record.user.name
+        if name == selection:
+            channel = record.channel.name
+            date = record.posted
+            counts[date, channel] += 1
+
+    table = pd.Series(counts)
+    table = table.unstack()
+    order = table.sum(axis=0).sort_values(ascending=False)
+    selection = order.head(5).index
+    table = table[selection]
+    table = table.resample('M').sum()
+    table.plot(kind='area')
 
 
 def show_channels_created(channels, messages, top=10):
@@ -1360,3 +1438,142 @@ def dump_users_by_time(messages):
         'records': data,
         'tooltips': tooltips
     }, USERS_BY_TIME_VIZ_DATA)
+
+
+def color_hex(color):
+    r, g, b = color
+    r = int(r * 255)
+    g = int(g * 255)
+    b = int(b * 255)
+    return '#{r:02x}{g:02x}{b:02x}'.format(
+        r=r,
+        g=g,
+        b=b
+    )
+
+
+def dump_json2(data, path):
+    with open(path, 'w') as file:
+        string = json.dumps(data, ensure_ascii=False)
+        file.write(string.encode('utf8'))
+
+
+def get_date_month(date):
+    return datetime(date.year, date.month, 1)
+
+
+def dump_users_viz_data2(names, points, colors, channel_colors, user_cards, top_channels=10):
+    mapping = {_.name: _ for _ in user_cards}        
+    data = []
+    for name, point, color in zip(names, points, colors):
+        color = color_hex(color)
+        card = mapping[name]
+        x, y = point
+        joined = card.joined
+        welcome_message = card.welcome_message
+        if welcome_message:
+            welcome_message = welcome_message.text
+
+        top = [
+            channel
+            for channel, messages
+            in card.channel_messages.most_common(top_channels)
+        ]
+        channel_date_messages = card.channel_date_messages
+        months = set()
+        channel_month_messages = defaultdict(Counter)
+        for channel in channel_date_messages:
+            if channel not in top:
+                name_  = OTHER
+            else:
+                name_ = channel
+            for date in channel_date_messages[channel]:
+                count = channel_date_messages[channel][date]
+                month = get_date_month(date)
+                months.add(month)
+                channel_month_messages[name_][month] += count
+
+        months = sorted(months)
+        channels = []
+        for channel in top + [OTHER]:
+            if channel == OTHER:
+                color_ = OTHER_COLOR
+            else:
+                color_ = color_hex(channel_colors.get(channel, [0.1, 0.1, 0.1]))
+            messages = [channel_month_messages[channel][_] for _ in months]
+            channels.append(OrderedDict([
+                ('name', channel),
+                ('color', color_),
+                ('messages', messages)
+            ]))
+
+        messages = card.messages
+        data.append(OrderedDict([
+            ('name', name),
+            ('color', color),
+            ('x', x),
+            ('y', y),
+            ('joined', serialize_date(joined)),
+            ('welcome_message', welcome_message),
+            ('messages', messages),
+            ('channels', channels),
+            ('months', [serialize_date(_) for _ in months])
+        ]))
+    dump_json2(data, USERS_VIZ_DATA)
+
+
+def dates_range(start, stop, step):
+    while start <= stop:
+        yield start
+        start += timedelta(days=step)
+
+
+def dump_channels_viz_data2(channels, messages, top=7):
+    channel_messages = Counter()
+    channel_week_messages = defaultdict(Counter)
+    for record in messages:
+        if record.type == TEXT:
+            name = record.channel.name
+            date = round_week(record.posted.date())
+            channel_week_messages[name][date] += 1
+            channel_messages[name] += 1
+
+    data = []
+    counts = Counter()
+    for record in channels:
+        name = record.name
+        purpose = record.purpose
+        created = record.created
+        creator = record.creator.name
+        counts[creator] += 1
+        members = len(record.members)
+        messages = channel_messages[name]
+
+        week_messages = channel_week_messages[name]
+        if week_messages:
+            start = min(week_messages)
+            stop = max(week_messages)
+            for date in dates_range(start, stop, 7):
+                if date not in week_messages:
+                    week_messages[date] = None
+                
+            week_messages = OrderedDict([
+                (serialize_date(_), week_messages[_])
+                for _ in sorted(week_messages)
+            ])
+
+        if members:
+            data.append(OrderedDict([
+                ('name', name),
+                ('purpose', purpose),
+                ('created', serialize_date(created)),
+                ('creator', creator),
+                ('members', members),
+                ('messages', messages),
+                ('week_messages', week_messages)
+            ]))
+    order = [user for user, count in counts.most_common(top)]
+    dump_json2({
+        'records': data,
+        'order': order
+    }, CHANNELS_VIZ_DATA)
